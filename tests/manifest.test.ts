@@ -340,4 +340,47 @@ describe("recovery.reconcile", () => {
     expect(mk({ poll_seconds: 10, stall_polls: 4 })).toHaveLength(0);
     expect(mk({ poll_seconds: 10, stall_polls: 0 })).toHaveLength(0);
   });
+
+  // fx.min_quote_remaining_seconds (#152): the settle+confirm margin the
+  // quote.window gate check enforces.
+  it("defaults min_quote_remaining_seconds to 45", () => {
+    const r = parseCorridor(valid);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.fx.min_quote_remaining_seconds).toBe(45);
+  });
+
+  it("accepts a margin smaller than the quote TTL", () => {
+    const r = parseCorridor({
+      ...valid,
+      fx: { ...valid.fx, quote_ttl_seconds: 120, min_quote_remaining_seconds: 90 },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.fx.min_quote_remaining_seconds).toBe(90);
+  });
+
+  it("rejects a margin at or above the quote TTL", () => {
+    // margin == ttl refuses every firm quote the moment it is minted — a
+    // corridor that can never settle is a misconfiguration, not caution.
+    for (const min_quote_remaining_seconds of [60, 61]) {
+      const r = parseCorridor({
+        ...valid,
+        fx: { ...valid.fx, quote_ttl_seconds: 60, min_quote_remaining_seconds },
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("MANIFEST_INVALID");
+        expect(r.error.message).toContain("min_quote_remaining_seconds");
+      }
+    }
+  });
+
+  it("rejects a non-positive or fractional margin", () => {
+    for (const bad of [0, -5, 1.5]) {
+      const r = parseCorridor({
+        ...valid,
+        fx: { ...valid.fx, min_quote_remaining_seconds: bad },
+      });
+      expect(r.ok).toBe(false);
+    }
+  });
 });

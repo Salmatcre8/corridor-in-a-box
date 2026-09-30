@@ -100,15 +100,36 @@ export const SourceAnchorSchema = z.preprocess(
   z.union([PrefundedSourceSchema, Sep6SourceSchema, Sep24SourceSchema, CustomSourceSchema]),
 );
 
-export const FxSchema = z.object({
-  /** The conversion path, in order. e.g. ["NGN","USDC","ARS"]. >= 2 hops. */
-  path: z.array(z.string().min(1)).min(2),
-  quote_source: z.enum(["sep38", "external"]).default("sep38"),
-  /** Who carries the rate risk between quote-time and settlement. */
-  who_holds_risk: z.enum(["sender", "sending_anchor", "receiving_anchor"]),
-  /** Firm-quote TTL. The settle leg must hit the chain before this elapses. */
-  quote_ttl_seconds: z.number().int().positive().default(60),
-});
+export const FxSchema = z
+  .object({
+    /** The conversion path, in order. e.g. ["NGN","USDC","ARS"]. >= 2 hops. */
+    path: z.array(z.string().min(1)).min(2),
+    quote_source: z.enum(["sep38", "external"]).default("sep38"),
+    /** Who carries the rate risk between quote-time and settlement. */
+    who_holds_risk: z.enum(["sender", "sending_anchor", "receiving_anchor"]),
+    /** Firm-quote TTL. The settle leg must hit the chain before this elapses. */
+    quote_ttl_seconds: z.number().int().positive().default(60),
+    /**
+     * Minimum seconds a firm quote must still have left when a settle attempt
+     * starts (#152). Covers submit plus Horizon confirmation, so a quote that
+     * is technically alive but would expire mid-flight is refused BEFORE our
+     * money moves, instead of the anchor rejecting or re-pricing the payout
+     * after it has. Enforced by the `quote.window` gate check.
+     */
+    min_quote_remaining_seconds: z.number().int().positive().default(45),
+  })
+  .superRefine((fx, ctx) => {
+    // A margin at or above the TTL would refuse every firm quote the moment
+    // it is minted — a corridor that can never settle, misconfigured rather
+    // than cautious.
+    if (fx.min_quote_remaining_seconds >= fx.quote_ttl_seconds) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["min_quote_remaining_seconds"],
+        message: `min_quote_remaining_seconds (${fx.min_quote_remaining_seconds}) must be smaller than quote_ttl_seconds (${fx.quote_ttl_seconds})`,
+      });
+    }
+  });
 
 export const ComplianceSchema = z.object({
   source_jurisdiction: z.string().min(1),
