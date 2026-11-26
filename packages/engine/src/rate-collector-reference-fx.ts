@@ -123,6 +123,20 @@ export function currencyApiUrls(
   );
 }
 
+/** Drops trailing zeros without a regex: a `/0+$/` on text from the network can backtrack. */
+function dropTrailingZeros(digits: string): string {
+  let end = digits.length;
+  while (end > 0 && digits.charCodeAt(end - 1) === 48) end -= 1;
+  return digits.slice(0, end);
+}
+
+/** Drops leading zeros, keeping the last digit, so "000" becomes "0". */
+function dropLeadingZeros(digits: string): string {
+  let start = 0;
+  while (start < digits.length - 1 && digits.charCodeAt(start) === 48) start += 1;
+  return digits.slice(start);
+}
+
 /**
  * Writes a JSON number literal as a plain decimal string, digit for digit:
  * `1.5e-7` becomes `0.00000015`, `1650.25` stays `1650.25`. Returns null for
@@ -149,8 +163,8 @@ export function plainDecimal(literal: string): string | null {
     whole = digits.slice(0, point);
     part = digits.slice(point);
   }
-  whole = whole.replace(/^0+(?=\d)/, "");
-  part = part.replace(/0+$/, "");
+  whole = dropLeadingZeros(whole);
+  part = dropTrailingZeros(part);
   return `${sign}${whole}${part ? `.${part}` : ""}`;
 }
 
@@ -263,7 +277,7 @@ function scaled(decimal: string): bigint {
 
 function unscaled(value: bigint): string {
   const whole = value / SCALE;
-  const frac = (value % SCALE).toString().padStart(SCALE_DIGITS, "0").replace(/0+$/, "");
+  const frac = dropTrailingZeros((value % SCALE).toString().padStart(SCALE_DIGITS, "0"));
   return frac ? `${whole}.${frac}` : `${whole}`;
 }
 
